@@ -53,3 +53,19 @@ jobs:
 
       - name: Ensure dist is up to date
         run: git diff --exit-code
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [lint, test-build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main') || github.event_name == 'release'
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+
+    steps:
+      - name: Checking out
+        uses: actions/checkout@v6
+      - name: Publish
+        id: publish
+        uses: actions/publish-immutable-action@0.0.3
