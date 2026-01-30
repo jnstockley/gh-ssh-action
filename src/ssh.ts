@@ -92,9 +92,8 @@ export async function executeSshCommand(
     let stderr = "";
     let settled = false;
 
-    // Track last logged chunk per stream to avoid duplicate/blank lines in logs
-    let lastLoggedStdout = "";
-    let lastLoggedStderr = "";
+    // Track all logged lines during this command to avoid duplicate/blank lines in logs
+    const loggedLines = new Set<string>();
 
     const fail = (error: Error) => {
       if (settled) {
@@ -113,66 +112,89 @@ export async function executeSshCommand(
             return;
           }
 
-          // Helper: normalize chunk for logging (strip carriage returns and trailing newlines)
-          const normalizeChunkForLog = (data: Buffer | string) => {
+          // Helper: split incoming data into lines and normalize each for logging
+          const processData = (
+            data: Buffer | string,
+            onLog: ((chunk: string) => void) | undefined,
+            accumulate: (line: string) => void
+          ) => {
             const s = typeof data === "string" ? data : data.toString();
-            // Remove carriage returns used by progress bars and trim trailing newlines
-            // Also trim trailing whitespace (e.g., spaces before newline) so logs are consistent
-            return s.replace(/\r/g, "").replace(/\n+$/, "").trimEnd();
-          };
+            // Convert carriage returns to newlines so progress updates (which use \r) become separate items
+            const normalizedNewlines = s.replace(/\r/g, "\n");
+            // Split into lines; this will produce empty strings for trailing/newline-only chunks
+            const parts = normalizedNewlines.split(/\n/);
 
-          stream.on("data", (data: Buffer) => {
-            const chunk = data.toString();
-            const normalized = normalizeChunkForLog(chunk);
+            for (const part of parts) {
+              // Split on runs of 2+ spaces to get tokens. Many concatenated outputs use double spaces
+              // to separate repeated segments. We'll then merge continuation tokens into the previous
+              // token unless the token clearly starts a new message (heuristic below).
+              const rawTokens = part.split(/\s{2,}/).map(t => t.trim()).filter(Boolean);
 
-            // Skip empty lines produced by newline-only chunks
-            if (normalized === "") {
-              // Still accumulate raw data to preserve output if needed
-              stdout += chunk;
-              return;
-            }
+              const isMessageStart = (tok: string) => /^(Warning:|[0-9a-f]{12}\b|Image\b|Container\b)/i.test(tok);
 
-            // Avoid logging immediate duplicates which commonly occur with progress output
-            if (normalized !== lastLoggedStdout) {
-              lastLoggedStdout = normalized;
-              handlers.onStdout?.(normalized);
-            }
+              const merged: string[] = [];
+              for (let i = 0; i < rawTokens.length; i++) {
+                const tok = rawTokens[i];
 
-            stdout += normalized + "\n"; // keep newline-separated accumulated output
+                // If the token is exactly 'Warning:' (possibly with trailing spaces), fold it into the next token
+                if (/^Warning:$/i.test(tok) && i + 1 < rawTokens.length) {
+                  const next = rawTokens[i + 1];
+                  merged.push((tok + ' ' + next).trim());
+                  i++; // skip the next token
+                  continue;
+                }
+
+                if (merged.length === 0) {
+                  merged.push(tok);
+                  continue;
+                }
+
+                if (isMessageStart(tok)) {
+                  // starts a new message
+                  merged.push(tok);
+                } else {
+                  // continuation of previous message; append with a single space
+                  merged[merged.length - 1] = (merged[merged.length - 1] + ' ' + tok).trim();
+                }
+              }
+
+             for (const msg of merged) {
+               const line = msg.replace(/\s+/g, ' ').trim();
+               if (line === '') continue;
+               if (!loggedLines.has(line)) {
+                 loggedLines.add(line);
+                 if (onLog) onLog(line);
+               }
+               accumulate(line + '\n');
+             }
+           }
+         };
+
+         stream.on('data', (data: Buffer) => {
+           processData(
+             data,
+             handlers.onStdout,
+             (addition) => { stdout += addition; }
+           );
+         });
+
+          stream.stderr.on('data', (data: Buffer) => {
+            processData(
+              data,
+              handlers.onStderr,
+              (addition) => { stderr += addition; }
+            );
           });
 
-          stream.stderr.on("data", (data: Buffer) => {
-            const chunk = data.toString();
-            const normalized = normalizeChunkForLog(chunk);
-
-            if (normalized === "") {
-              stderr += chunk;
-              return;
-            }
-
-            if (normalized !== lastLoggedStderr) {
-              lastLoggedStderr = normalized;
-              handlers.onStderr?.(normalized);
-            }
-
-            stderr += normalized + "\n";
-          });
-
-          stream.on("close", (code: number | null) => {
-            if (settled) {
-              return;
-            }
+          stream.on('close', (code: number | null) => {
+            if (settled) return;
             settled = true;
             client.end();
-            resolve({
-              stdout,
-              stderr,
-              exitCode: typeof code === "number" ? code : 0,
-            });
+            resolve({ stdout, stderr, exitCode: typeof code === 'number' ? code : 0 });
           });
         });
       })
-      .on("error", (error) => fail(error))
+      .on('error', (error) => fail(error))
       .connect(config);
   });
 }

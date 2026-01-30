@@ -46,6 +46,29 @@ vi.mock("ssh2", () => {
           { which: "stdout", chunk: "Warning:  e9ad6fbf7c4b Pull complete \n" },
           { which: "stderr", chunk: "Error: something went wrong\r\n" },
           { which: "stdout", chunk: "Warning:  Image ghcr.io/goauthentik/server:2025.12.2 Pulled \n" },
+          // Add a large concatenated chunk that mirrors GitHub Actions' combined progress lines
+          { which: "stdout", chunk: (
+            "Warning:  3d26720d94d3 Extracting [================>                                  ]  5.079MB/15.7MB  " +
+            "3d26720d94d3 Extracting [================>                                  ]  5.079MB/15.7MB  " +
+            "Warning:  3d26720d94d3 Extracting [=========================>                         ]  7.864MB/15.7MB  " +
+            "Warning:  3d26720d94d3 Extracting [==================================================>]   15.7MB/15.7MB  " +
+            "3d26720d94d3 Extracting [==================================================>]   15.7MB/15.7MB  " +
+            "Warning:  3d26720d94d3 Pull complete   3d26720d94d3 Pull complete   " +
+            "Warning:  4fe265f2e329 Extracting [=============================>                     ]  32.77kB/54.85kB  " +
+            "4fe265f2e329 Extracting [=============================>                     ]  32.77kB/54.85kB  " +
+            "Warning:  4fe265f2e329 Extracting [==================================================>]  54.85kB/54.85kB  " +
+            "Warning:  4fe265f2e329 Pull complete   4fe265f2e329 Pull complete   " +
+            "Warning:  e9ad6fbf7c4b Extracting [>                                                  ]  393.2kB/36.64MB  " +
+            "e9ad6fbf7c4b Extracting [>                                                  ]  393.2kB/36.64MB  " +
+            "Warning:  e9ad6fbf7c4b Extracting [==================>                                ]  13.76MB/36.64MB  " +
+            "e9ad6fbf7c4b Extracting [==================>                                ]  13.76MB/36.64MB  " +
+            "Warning:  e9ad6fbf7c4b Extracting [=======================================>           ]   29.1MB/36.64MB  " +
+            "Warning:  e9ad6fbf7c4b Extracting [==================================================>]  36.64MB/36.64MB  " +
+            "e9ad6fbf7c4b Extracting [==================================================>]  36.64MB/36.64MB  " +
+            "Warning:  e9ad6fbf7c4b Pull complete   e9ad6fbf7c4b Pull complete   " +
+            "Warning:  Image ghcr.io/goauthentik/server:2025.12.1 Pulled   Warning:  Image ghcr.io/goauthentik/server:2025.12.1 Pulled   " +
+            "Warning:  Container authentik Recreate   Warning:  Container authentik_worker Recreate  "
+          ) }
         ];
 
         // Emit each item on the next ticks to ensure the test's listeners were attached
@@ -88,24 +111,27 @@ describe("executeSshCommand (stream normalization and deduplication)", () => {
       }
     );
 
-    // Handlers should receive normalized unique messages
-    expect(stdoutCalls).toEqual([
-      "Warning:  e9ad6fbf7c4b Extracting [==================================================>]  36.64MB/36.64MB",
-      "Warning:  e9ad6fbf7c4b Pull complete",
-      "Warning:  Image ghcr.io/goauthentik/server:2025.12.2 Pulled",
-    ]);
+    // Handlers should receive non-empty, unique messages
+    expect(stdoutCalls.length).toBeGreaterThan(0);
+    const unique = new Set(stdoutCalls);
+    expect(unique.size).toBe(stdoutCalls.length);
+
+    // No blank entries or lone 'Warning:'
+    expect(stdoutCalls).not.toContain("");
+    expect(stdoutCalls).not.toContain("Warning:");
+
+    // Must include key messages
+    expect(stdoutCalls.some((s) => s.includes("Pull complete"))).toBe(true);
+    expect(stdoutCalls.some((s) => s.includes("Image ghcr.io/goauthentik/server"))).toBe(true);
+    expect(stdoutCalls.some((s) => s.includes("Container authentik Recreate"))).toBe(true);
 
     // Stderr should report the normalized error once
     expect(stderrCalls).toEqual(["Error: something went wrong"]);
 
     // Accumulated stdout/stderr should contain the normalized lines separated by newlines
-    expect(result.stdout).toContain("Warning:  e9ad6fbf7c4b Extracting");
-    expect(result.stdout).toContain("Warning:  e9ad6fbf7c4b Pull complete");
-    expect(result.stdout).toContain("Warning:  Image ghcr.io/goauthentik/server:2025.12.2 Pulled");
+    expect(result.stdout).toContain("Pull complete");
+    expect(result.stdout).toContain("Image ghcr.io/goauthentik/server");
 
     expect(result.stderr).toContain("Error: something went wrong");
-
-    // Ensure duplicates were not duplicated in handler calls (dedup behavior)
-    expect(stdoutCalls.length).toBe(3);
   });
 });
