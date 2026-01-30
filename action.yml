@@ -1,17 +1,39 @@
-name: "GitHub Action Starter"
-description: "Starter template for building TypeScript-based GitHub Actions."
+name: "GitHub SSH Action"
+description: "Run SSH commands against a remote host."
 author: ""
 inputs:
-  name:
-    description: "Name to greet."
+  host:
+    description: "SSH host to connect to."
+    required: true
+  username:
+    description: "SSH username."
+    required: true
+  port:
+    description: "SSH port."
     required: false
-    default: "World"
+    default: "22"
+  password:
+    description: "SSH password (for password auth)."
+    required: false
+  private_key:
+    description: "SSH private key (for key auth)."
+    required: false
+  private_key_passphrase:
+    description: "Passphrase for the SSH private key."
+    required: false
+  command:
+    description: "Command(s) to execute on the remote host. Provide a single line or a multiline list."
+    required: true
 outputs:
-  message:
-    description: "The greeting message."
+  stdout:
+    description: "Standard output from the remote command."
+  stderr:
+    description: "Standard error from the remote command."
+  exit_code:
+    description: "Exit code from the remote command."
 runs:
   using: "node20"
   main: "dist/index.js"
 branding:
-  icon: "zap"
+  icon: "terminal"
   color: "blue"
