@@ -1,0 +1,17 @@
+name: "GitHub Action Starter"
+description: "Starter template for building TypeScript-based GitHub Actions."
+author: ""
+inputs:
+  name:
+    description: "Name to greet."
+    required: false
+    default: "World"
+outputs:
+  message:
+    description: "The greeting message."
+runs:
+  using: "node20"
+  main: "dist/index.js"
+branding:
+  icon: "zap"
+  color: "blue"
