@@ -1,7 +1,7 @@
 {
-  "name": "gh-action-starter",
+  "name": "gh-ssh-action",
   "version": "1.0.0",
-  "description": "A production-ready GitHub Action starter (TypeScript + esbuild).",
+  "description": "A GitHub Action for SSH operations",
   "main": "dist/index.js",
   "scripts": {
     "clean": "rm -rf dist",
