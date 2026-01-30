@@ -1,23 +1,64 @@
-# GitHub Action Starter
+# GitHub SSH Action
 
-A production-ready starter template for building TypeScript-based GitHub Actions.
+Run SSH commands against a remote host from GitHub Actions.
 
 ## Usage
 
+### Password authentication
+
 ```yaml
-- name: Run the starter action
-  uses: your-org/gh-action-starter@v1
+- name: Run SSH command
+  uses: your-org/gh-ssh-action@v1
   with:
-    name: "Octo"
+    host: ${{ secrets.SSH_HOST }}
+    username: ${{ secrets.SSH_USER }}
+    password: ${{ secrets.SSH_PASSWORD }}
+    command: "uname -a"
 ```
 
-### Inputs
+### Key authentication (with passphrase)
 
-- `name`: Name to greet. Default: `World`.
+```yaml
+- name: Run SSH command
+  uses: your-org/gh-ssh-action@v1
+  with:
+    host: ${{ secrets.SSH_HOST }}
+    username: ${{ secrets.SSH_USER }}
+    private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+    private_key_passphrase: ${{ secrets.SSH_PRIVATE_KEY_PASSPHRASE }}
+    command: "uptime"
+```
 
-### Outputs
+### Multiple commands
 
-- `message`: The greeting message.
+```yaml
+- name: Run multiple SSH commands
+  uses: your-org/gh-ssh-action@v1
+  with:
+    host: ${{ secrets.SSH_HOST }}
+    username: ${{ secrets.SSH_USER }}
+    private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+    command: |
+      whoami
+      pwd
+      ls -la
+```
+
+## Inputs
+
+- `host`: SSH host to connect to. Required.
+- `username`: SSH username. Required.
+- `port`: SSH port. Default: `22`.
+- `password`: SSH password (for password auth).
+- `private_key`: SSH private key (for key auth). Use a multiline secret.
+- `private_key_passphrase`: Passphrase for the SSH private key.
+- `command`: Command to execute on the remote host. Required.
+
+## Outputs
+
+- `stdout`: Standard output from the remote command.
+- `stderr`: Standard error from the remote command.
+- `exit_code`: Exit code from the remote command.
 
 ## Development
 
