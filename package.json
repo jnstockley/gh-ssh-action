@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --legal-comments=external",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --loader:.node=file --outfile=dist/index.js --legal-comments=external",
     "bundle": "npm run build",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
