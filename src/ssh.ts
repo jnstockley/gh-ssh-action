@@ -92,6 +92,10 @@ export async function executeSshCommand(
     let stderr = "";
     let settled = false;
 
+    // Track last logged chunk per stream to avoid duplicate/blank lines in logs
+    let lastLoggedStdout = "";
+    let lastLoggedStderr = "";
+
     const fail = (error: Error) => {
       if (settled) {
         return;
@@ -109,16 +113,49 @@ export async function executeSshCommand(
             return;
           }
 
+          // Helper: normalize chunk for logging (strip carriage returns and trailing newlines)
+          const normalizeChunkForLog = (data: Buffer | string) => {
+            const s = typeof data === "string" ? data : data.toString();
+            // Remove carriage returns used by progress bars and trim trailing newlines
+            // Also trim trailing whitespace (e.g., spaces before newline) so logs are consistent
+            return s.replace(/\r/g, "").replace(/\n+$/, "").trimEnd();
+          };
+
           stream.on("data", (data: Buffer) => {
             const chunk = data.toString();
-            stdout += chunk;
-            handlers.onStdout?.(chunk);
+            const normalized = normalizeChunkForLog(chunk);
+
+            // Skip empty lines produced by newline-only chunks
+            if (normalized === "") {
+              // Still accumulate raw data to preserve output if needed
+              stdout += chunk;
+              return;
+            }
+
+            // Avoid logging immediate duplicates which commonly occur with progress output
+            if (normalized !== lastLoggedStdout) {
+              lastLoggedStdout = normalized;
+              handlers.onStdout?.(normalized);
+            }
+
+            stdout += normalized + "\n"; // keep newline-separated accumulated output
           });
 
           stream.stderr.on("data", (data: Buffer) => {
             const chunk = data.toString();
-            stderr += chunk;
-            handlers.onStderr?.(chunk);
+            const normalized = normalizeChunkForLog(chunk);
+
+            if (normalized === "") {
+              stderr += chunk;
+              return;
+            }
+
+            if (normalized !== lastLoggedStderr) {
+              lastLoggedStderr = normalized;
+              handlers.onStderr?.(normalized);
+            }
+
+            stderr += normalized + "\n";
           });
 
           stream.on("close", (code: number | null) => {
