@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --loader:.node=file --outfile=dist/index.js --legal-comments=external",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --loader:.node=file --outfile=dist/index.js --legal-comments=external",
     "prepare": "npm run build",
     "bundle": "npm run build",
     "lint": "tsc -p tsconfig.json --noEmit",
@@ -22,9 +22,9 @@
   ],
   "author": "",
   "license": "ISC",
-  "type": "module",
+  "type": "commonjs",
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "dependencies": {
     "@actions/core": "^3.0.0",
