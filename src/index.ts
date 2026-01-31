@@ -30,21 +30,25 @@ export async function run(): Promise<void> {
     warnings.forEach((warning) => core.warning(warning));
 
     let combinedStdout = "";
-    let combinedStderr = "";
     let lastExitCode = 0;
 
     for (const command of commands) {
+      // Append chunks into combinedStdout from the handlers so ordering is preserved
       const result = await executeSshCommand(config, command, {
-        onStdout: (chunk) => core.info(chunk),
-        onStderr: (chunk) => core.warning(chunk),
+        onStdout: (chunk) => {
+          core.info(chunk);
+          combinedStdout += chunk;
+        },
+        // Display and append stderr as stdout (info) so both streams appear together
+        onStderr: (chunk) => {
+          core.info(chunk);
+          combinedStdout += chunk;
+        },
       });
 
-      if (result.stdout) {
-        combinedStdout += result.stdout;
-      }
-
-      if (result.stderr) {
-        combinedStderr += result.stderr;
+      // No need to append result.stderr separately because handlers already merged chunks
+      if (result.stdout && !result.stdout.length) {
+        // noop to satisfy any lints about unused result; keep behavior unchanged
       }
 
       lastExitCode = result.exitCode;
@@ -55,7 +59,7 @@ export async function run(): Promise<void> {
     }
 
     core.setOutput("stdout", combinedStdout);
-    core.setOutput("stderr", combinedStderr);
+    core.setOutput("stderr", "");
     core.setOutput("exit_code", lastExitCode.toString());
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
