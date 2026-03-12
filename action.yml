@@ -32,7 +32,7 @@ outputs:
   exit_code:
     description: "Exit code from the remote command."
 runs:
-  using: "node20"
+  using: "node24"
   main: "dist/index.js"
 branding:
   icon: "terminal"
