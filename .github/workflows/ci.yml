@@ -91,7 +91,7 @@ jobs:
           git fetch --tags origin
 
           # Create a temporary branch from the release tag so we can commit the built dist
-          git checkout -b publish/${RELEASE_TAG} "refs/tags/${RELEASE_TAG}" || git checkout -B publish/${RELEASE_TAG} "refs/tags/${RELEASE_TAG}"
+          git checkout -b publish/${RELEASE_TAG} "refs/tags/${RELEASE_TAG}^{commit}" || git checkout -B publish/${RELEASE_TAG} "refs/tags/${RELEASE_TAG}^{commit}"
 
           # Replace dist and commit (if there are changes)
           git rm -rf dist || true
