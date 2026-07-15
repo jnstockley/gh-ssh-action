@@ -17,5 +17,10 @@ RUN useradd --create-home --shell /usr/sbin/nologin action && \
     chown -R action:action /action
 USER action
 
-ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "gh_ssh_action.main"]
+# Invoke the venv's Python directly instead of going through `uv run`. The venv was already
+# fully built above, so nothing needs to be synced/resolved at container start — and critically,
+# GitHub Actions' Docker runner overrides HOME to a host-mounted directory (e.g. `/github/home`)
+# that isn't writable by this container's non-root user, which would otherwise make `uv run` fail
+# trying to create its cache dir there (`Permission denied` on `$HOME/.cache/uv`).
+ENTRYPOINT ["/action/.venv/bin/python", "-m", "gh_ssh_action.main"]
 
