@@ -2,12 +2,12 @@ name: Release
 
 # Triggered when a GitHub Release is published (either as the "latest" release or a pre-release).
 #
-# Because this action is a Docker container action, GitHub builds the image directly from the
-# Dockerfile at the tagged commit when the action runs — there is no compiled artifact that needs
-# to be built and force-pushed back onto the release tag. This workflow therefore never rewrites
-# the tag associated with the published release, which keeps it fully compatible with the
-# repository's "Enable release immutability" setting (Disallow assets and tags from being modified
-# once a release is published).
+# This is a composite action: GitHub runs its steps directly on the consumer's runner at the
+# released commit via `uv` — there is no build artifact that needs to be produced and
+# force-pushed back onto the release tag. This workflow therefore never rewrites the tag
+# associated with the published release, which keeps it fully compatible with the repository's
+# "Enable release immutability" setting (Disallow assets and tags from being modified once a
+# release is published).
 #
 # The only tags this workflow ever moves are the floating "major" (vN) and "minor" (vN.M)
 # convenience tags, which are separate, non-release git refs (no GitHub Release is attached to
@@ -15,11 +15,12 @@ name: Release
 # move these floating tags, so consumers pinned to `@v1` always resolve to the latest stable
 # release.
 #
-# In addition, every release (including pre-releases) publishes the built container image to the
-# GitHub Container Registry (ghcr.io), tagged with the exact release tag. This is purely an
-# optional, inspectable artifact (e.g. `docker pull ghcr.io/<owner>/<repo>:v1.3.0-beta.1`) — the
-# action itself is still consumed via `uses: <owner>/<repo>@<tag>`, which builds straight from the
-# Dockerfile and needs no registry at all.
+# In addition, every release (including pre-releases) publishes the optional, standalone
+# container image (see the "Architecture" note in action.yml / README for why the action itself
+# does NOT use this image) to the GitHub Container Registry (ghcr.io), tagged with the exact
+# release tag. This is purely an inspectable/pullable artifact for running the tool outside
+# GitHub Actions — the action itself is still consumed via `uses: <owner>/<repo>@<tag>`, which
+# needs no registry or Docker at all.
 
 on:
   release:
@@ -41,7 +42,7 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@v8.3.2
         with:
           enable-cache: true
 
@@ -57,7 +58,53 @@ jobs:
       - name: Test
         run: uv run pytest -v
 
-      - name: Build container image
+      - name: Install and start a local SSH server
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server
+          sudo mkdir -p /run/sshd
+          sudo /usr/sbin/sshd
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          ssh-keygen -t ed25519 -f /tmp/gh_ssh_action_test_key -N "" -q
+          cat /tmp/gh_ssh_action_test_key.pub >> "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+
+          {
+            echo "private_key<<GH_SSH_ACTION_KEY_EOF"
+            cat /tmp/gh_ssh_action_test_key
+            echo "GH_SSH_ACTION_KEY_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "username=$(whoami)" >> "$GITHUB_OUTPUT"
+        id: sshd
+
+      - name: "Run SSH command via this action at the release tag (uses: ./)"
+        id: ssh
+        uses: ./
+        with:
+          host: 127.0.0.1
+          username: ${{ steps.sshd.outputs.username }}
+          private_key: ${{ steps.sshd.outputs.private_key }}
+          command: echo "hello from the release-verified composite action"
+
+      - name: Verify action output
+        env:
+          SSH_STDOUT: ${{ steps.ssh.outputs.stdout }}
+          SSH_EXIT_CODE: ${{ steps.ssh.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          if [[ "$SSH_EXIT_CODE" != "0" ]]; then
+            echo "Expected exit_code 0, got: $SSH_EXIT_CODE"
+            exit 1
+          fi
+          if [[ "$SSH_STDOUT" != *"hello from the release-verified composite action"* ]]; then
+            echo "Expected stdout output not found: $SSH_STDOUT"
+            exit 1
+          fi
+
+      - name: Build standalone container image
         run: docker build -t gh-ssh-action:release .
 
   publish-image:

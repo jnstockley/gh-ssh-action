@@ -1,3 +1,13 @@
+# IMPORTANT: this MUST remain a composite action, not a Docker container action.
+#
+# Docker container actions run in an isolated network namespace that does not inherit the
+# runner's VPN tunnels or custom/private DNS resolution (e.g. from a WireGuard/OpenVPN setup step
+# earlier in the job). Consumers of this action frequently target hosts that are only reachable
+# and/or only resolvable via such a VPN. A Docker-based version of this action failed for exactly
+# this reason (`[Errno -5] No address associated with hostname`) even though the same hostname
+# resolved fine outside a container. A composite action's steps run as ordinary processes
+# directly on the runner, sharing its network stack, VPN routes, and DNS — the same behavior as
+# the original Node.js implementation of this action.
 name: "GitHub SSH Action"
 description: "Run SSH commands against a remote host."
 author: ""
@@ -39,13 +49,41 @@ inputs:
 outputs:
   stdout:
     description: "Standard output from the remote command."
+    value: ${{ steps.run.outputs.stdout }}
   stderr:
     description: "Standard error from the remote command."
+    value: ${{ steps.run.outputs.stderr }}
   exit_code:
     description: "Exit code from the remote command."
+    value: ${{ steps.run.outputs.exit_code }}
 runs:
-  using: "docker"
-  image: "Dockerfile"
+  using: "composite"
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v8.3.2
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: uv sync --frozen --no-dev
+
+    - name: Run SSH command
+      id: run
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: uv run --no-sync python -m gh_ssh_action.main
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_PASSWORD: ${{ inputs.password }}
+        INPUT_PRIVATE_KEY: ${{ inputs.private_key }}
+        INPUT_PRIVATE_KEY_PASSPHRASE: ${{ inputs.private_key_passphrase }}
+        INPUT_HOST_KEY_FINGERPRINT: ${{ inputs.host_key_fingerprint }}
+        INPUT_COMMAND_TIMEOUT: ${{ inputs.command_timeout }}
+        INPUT_COMMAND: ${{ inputs.command }}
 branding:
   icon: "terminal"
   color: "blue"
