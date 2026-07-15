@@ -21,6 +21,18 @@ inputs:
   private_key_passphrase:
     description: "Passphrase for the SSH private key."
     required: false
+  host_key_fingerprint:
+    description: >-
+      Expected SHA256 fingerprint of the remote host's SSH key (e.g. the output of
+      `ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -`, in `SHA256:...` form). When set, the
+      connection is refused if the host key does not match, protecting against
+      man-in-the-middle attacks. If omitted, the host key is trusted on first use without
+      verification.
+    required: false
+  command_timeout:
+    description: "Maximum time in seconds to wait for each command to finish. Default: 300."
+    required: false
+    default: "300"
   command:
     description: "Command(s) to execute on the remote host. Provide a single line or a multiline list."
     required: true
@@ -32,8 +44,9 @@ outputs:
   exit_code:
     description: "Exit code from the remote command."
 runs:
-  using: "node24"
-  main: "dist/index.js"
+  using: "docker"
+  image: "Dockerfile"
 branding:
   icon: "terminal"
   color: "blue"
+

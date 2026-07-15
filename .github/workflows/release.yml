@@ -1,0 +1,164 @@
+name: Release
+
+# Triggered when a GitHub Release is published (either as the "latest" release or a pre-release).
+#
+# Because this action is a Docker container action, GitHub builds the image directly from the
+# Dockerfile at the tagged commit when the action runs — there is no compiled artifact that needs
+# to be built and force-pushed back onto the release tag. This workflow therefore never rewrites
+# the tag associated with the published release, which keeps it fully compatible with the
+# repository's "Enable release immutability" setting (Disallow assets and tags from being modified
+# once a release is published).
+#
+# The only tags this workflow ever moves are the floating "major" (vN) and "minor" (vN.M)
+# convenience tags, which are separate, non-release git refs (no GitHub Release is attached to
+# them) — the same pattern used by actions/checkout, actions/setup-node, etc. Pre-releases never
+# move these floating tags, so consumers pinned to `@v1` always resolve to the latest stable
+# release.
+#
+# In addition, every release (including pre-releases) publishes the built container image to the
+# GitHub Container Registry (ghcr.io), tagged with the exact release tag. This is purely an
+# optional, inspectable artifact (e.g. `docker pull ghcr.io/<owner>/<repo>:v1.3.0-beta.1`) — the
+# action itself is still consumed via `uses: <owner>/<repo>@<tag>`, which builds straight from the
+# Dockerfile and needs no registry at all.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type-check (mypy)
+        run: uv run mypy src
+
+      - name: Test
+        run: uv run pytest -v
+
+      - name: Build container image
+        run: docker build -t gh-ssh-action:release .
+
+  publish-image:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Compute image tags
+        id: tags
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          tags="${IMAGE_NAME}:${RELEASE_TAG}"
+
+          if [[ "${IS_PRERELEASE}" == "false" && "${RELEASE_TAG}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            tags="${tags},${IMAGE_NAME}:v${BASH_REMATCH[1]}"
+            tags="${tags},${IMAGE_NAME}:v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            tags="${tags},${IMAGE_NAME}:latest"
+          fi
+
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+
+  move-floating-tags:
+    needs: verify
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Move major/minor version tags
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${RELEASE_TAG}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Release tag '${RELEASE_TAG}' is not a plain vMAJOR.MINOR.PATCH tag; skipping floating tag update."
+            exit 0
+          fi
+
+          major="v${BASH_REMATCH[1]}"
+          minor="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          commit="$(git rev-parse "${RELEASE_TAG}")"
+
+          echo "Moving floating tags '${major}' and '${minor}' to ${RELEASE_TAG} (${commit})."
+
+          # These are plain, non-annotated convenience tags with no GitHub Release attached to
+          # them, so moving them does not conflict with release immutability (which only protects
+          # the tag/assets of a published release itself, i.e. ${RELEASE_TAG}).
+          git tag -f "${major}" "${commit}"
+          git tag -f "${minor}" "${commit}"
+
+          git push origin "refs/tags/${major}" --force
+          git push origin "refs/tags/${minor}" --force
+
+  skip-prerelease:
+    needs: verify
+    if: github.event.release.prerelease == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Note skip
+        run: |
+          echo "Release '${{ github.event.release.tag_name }}' is a pre-release."
+          echo "Floating major/minor version tags are left untouched so @v1 style references keep pointing at the latest stable release."
+          echo "The container image was still published to ghcr.io tagged '${{ github.event.release.tag_name }}' for direct inspection/testing."
+
+

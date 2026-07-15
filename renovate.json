@@ -11,8 +11,8 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["npm"],
-      "groupName": "npm dependencies"
+      "matchManagers": ["pep621", "pip_requirements"],
+      "groupName": "python dependencies"
     },
     {
       "matchManagers": ["github-actions"],

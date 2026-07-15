@@ -1,0 +1,45 @@
+[project]
+name = "gh-ssh-action"
+version = "1.0.0"
+description = "A GitHub Action for running SSH commands against a remote host"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "ISC" }
+dependencies = [
+    "paramiko>=3.4,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+[project.scripts]
+gh-ssh-action = "gh_ssh_action.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gh_ssh_action"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: exercises the real SSH protocol against an in-process test server.",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = "paramiko.*"
+ignore_missing_imports = true
+

@@ -1,0 +1,73 @@
+name: Security
+
+# Scans this action's Docker image and Python dependencies for known vulnerabilities using
+# Trivy, uploading results to the repository's Security tab (Code scanning alerts).
+#
+# No external accounts or secrets are required: the image is built locally in this workflow and
+# scanned in place — nothing is pulled from or pushed to any registry, so there's nothing to
+# configure beyond what's already built into GitHub Actions.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "22 20 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Trivy scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # for actions/checkout to fetch code
+      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
+      actions: read # only required for a private repository by github/codeql-action/upload-sarif
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build container image
+        run: docker build -t gh-ssh-action:scan .
+
+      - name: Scan container image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "gh-ssh-action:scan"
+          format: "sarif"
+          output: "trivy-image-results.sarif"
+          scanners: "vuln,secret,misconfig"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload image scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: "trivy-image-results.sarif"
+          category: "trivy-image"
+
+      - name: Scan filesystem (Python dependencies)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-fs-results.sarif"
+          scanners: "vuln,secret,misconfig"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Upload filesystem scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: "trivy-fs-results.sarif"
+          category: "trivy-fs"
+
